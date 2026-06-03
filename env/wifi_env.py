@@ -9,10 +9,10 @@ from gymnasium import spaces
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
-class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
+class WiFiEnv(gym.Env):
     def __init__(self):
         super().__init__()
-        print("Đang khởi tạo Môi trường Multi-Agent WiFi (Mỗi AP là một Agent)...")
+        print("Đang khởi tạo Môi trường Multi-Agent WiFi (Nâng cấp chuẩn Research: Smooth Mobility + VIB)...")
         
         self.num_agents = config.NUM_APS 
         self.agent_ids = [f"ap_{i}" for i in range(self.num_agents)]
@@ -27,20 +27,18 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             for agent_id in self.agent_ids
         })
         
-        self.max_steps = 100 
+        self.max_steps = 100
         self.current_step = 0
         
         self.aps = []
         self.stas = []
 
-    # BƯỚC 1: HÀM KHỞI TẠO LẠI VÁN GAME (Trả về Trạng thái Cục bộ dạng Dict)
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = 0
-        self.aps = self._setup_aps()   # Đặt lại vị trí AP cố định
-        self.stas = self._setup_stas() # Đổi vị trí STA (Ngẫu nhiên người dùng đi lại)
+        self.aps = self._setup_aps()   
+        self.stas = self._setup_stas() # Khởi tạo vị trí + Shadowing cố định + Vector vận tốc mượt
         
-        # Khởi tạo trạng thái ban đầu cho từng AP
         obs_dict = {}
         for agent_id in self.agent_ids:
             obs_dict[agent_id] = np.array([0.0], dtype=np.float32)
@@ -66,33 +64,41 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             self.aps[i]['cca_threshold'] = config.CCA_THRESHOLDS[new_idx]
             obs_dict[agent_id] = np.array([float(new_idx)], dtype=np.float32)
 
-
+        # 🌟 CẢI TIẾN 2: Mô hình Mobility mượt (Velocity Vector), loại bỏ Teleport giật cục
         for sta in self.stas:
-            # Tìm AP gốc mà người dùng này đang kết nối để giới hạn vùng di chuyển
             associated_ap = self.aps[sta['ap_id']]
             
-            dx = np.random.uniform(0, 0)
-            dy = np.random.uniform(0, 0)
+            # Cập nhật vị trí mượt theo vận tốc
+            sta['x'] += sta['vx']
+            sta['y'] += sta['vy']
             
-            new_x = sta['x'] + dx
-            new_y = sta['y'] + dy
+            # Đổi hướng nhẹ ngẫu nhiên (chuyển động quán tính của con người)
+            sta['vx'] += np.random.uniform(-0.02, 0.02)
+            sta['vy'] += np.random.uniform(-0.02, 0.02)
             
-            # Kiểm tra khoảng cách mới tới AP gốc xem có bị chạy ra quá xa không (giới hạn trong vùng phủ sóng 25m)
-            dist_to_ap = np.sqrt((new_x - associated_ap['x'])**2 + (new_y - associated_ap['y'])**2)
-            if 1.0 <= dist_to_ap <= 25.0:
-                sta['x'] = new_x
-                sta['y'] = new_y
+            # Giới hạn tốc độ max_speed = 0.3 m/step
+            speed = np.sqrt(sta['vx']**2 + sta['vy']**2)
+            max_speed = 0.3
+            if speed > max_speed:
+                sta['vx'] *= max_speed / speed
+                sta['vy'] *= max_speed / speed
+                
+            # Kiểm tra vùng phủ sóng, nếu chạy ra rìa > 22m thì dội ngược vector vận tốc lại
+            dist_to_ap = np.sqrt((sta['x'] - associated_ap['x'])**2 + (sta['y'] - associated_ap['y'])**2)
+            if dist_to_ap > 22.0:
+                sta['vx'] *= -1
+                sta['vy'] *= -1
 
-        # B1. Lọc AP active (CCA check) dựa trên ma trận nhiễu mới do STA di chuyển
+        # B1. Lọc AP active theo xác suất CSMA/CA mềm (Contention Probability)
         active_aps = self._get_active_aps()
         
-        # B2. Chạy thuật toán Water-Filling tối ưu lại công suất cho các vị trí mới
+        # B2. Chạy thuật toán Water-Filling có màng lọc Smoothing 0.8 / 0.2 tránh sốc công suất
         self._apply_water_filling(active_aps)
 
-        # B3. Tính toán thông lượng mạng tổng và chỉ số công bằng
+        # B3. Tính toán thông lượng mạng tổng
         total_throughput, jain_index = self.calculate_network_throughput()
         
-        # C. TÍNH TOÁN HÀM THƯỞNG CỘNG TÁC PHÂN TÁN PHẠT NHIỄU HÀNG XÓM
+        # C. TÍNH TOÁN HÀM THƯỞNG CÂN BẰNG REWARD VARIANCE (Chuẩn mục số 4)
         rewards_dict = {}
         ap_throughputs = self._calculate_individual_ap_throughput(active_aps)
         
@@ -103,10 +109,12 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
                 for other_ap in active_aps:
                     if other_ap['id'] != i:
                         dist = self._calculate_distance(self.aps[i], other_ap)
-                        gain = self._calculate_channel_gain(dist)
+                        # Truyền kèm theo shadowing_db mặc định của môi trường nền = 0 cho liên AP
+                        gain = self._calculate_channel_gain(dist, shadowing_db=0)
                         interference_penalty += self.aps[i]['tx_power'] * gain
             
-            rewards_dict[agent_id] = (0.4 * local_thr) + (0.6 * total_throughput * jain_index) - (1e3 * interference_penalty)
+            # Cấu hình Reward mới: Giảm biên độ sốc thông lượng, đẩy cấu trúc JFI tuyến tính hóa (*100)
+            rewards_dict[agent_id] = (0.3 * local_thr) + (0.4 * total_throughput) + (0.3 * (jain_index * 100)) - (1e3 * interference_penalty)
 
         terminated = False
         truncated = bool(self.current_step >= self.max_steps)
@@ -140,7 +148,12 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
                 angle = np.random.uniform(0, 2 * np.pi)
                 stas.append({
                     'id': sta_id, 'ap_id': ap['id'], 
-                    'x': ap['x'] + radius * np.cos(angle), 'y': ap['y'] + radius * np.sin(angle)
+                    'x': ap['x'] + radius * np.cos(angle), 'y': ap['y'] + radius * np.sin(angle),
+                    # 🌟 CẢI TIẾN 1: Găm cấu trúc Shadowing DB cố định theo từng STA đơn lẻ khi khởi tạo
+                    'shadowing_db': np.random.normal(0, config.SHADOW_STD),
+                    # 🌟 CẢI TIẾN 2: Vector vận tốc ban đầu cho di chuyển mượt
+                    'vx': np.random.uniform(-0.1, 0.1),
+                    'vy': np.random.uniform(-0.1, 0.1)
                 })
                 sta_id += 1
         return stas
@@ -148,16 +161,19 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
     def _calculate_distance(self, node1, node2):
         return np.sqrt((node1['x'] - node2['x'])**2 + (node1['y'] - node2['y'])**2)
 
-    def _calculate_channel_gain(self, distance):
+    # 🌟 CẢI TIẾN 1: Nhận tham số găm shadowing_db cố định từ cấu trúc STA truyền vào
+    def _calculate_channel_gain(self, distance, shadowing_db=0):
         d = max(distance, 0.1)
         term1 = 40.05
         term2 = 20 * np.log10(config.FREQ_C / 2.4)
         term3 = 20 * np.log10(min(d, config.D_BP))
         term4 = 35 * np.log10(d / config.D_BP) if d > config.D_BP else 0
-        shadowing = np.random.normal(0, config.SHADOW_STD)
-        path_loss_db = term1 + term2 + term3 + term4 + config.L_W + shadowing
+        
+        # Không dùng lệnh random ngẫu nhiên liên tục ở đây nữa!
+        path_loss_db = term1 + term2 + term3 + term4 + config.L_W + shadowing_db
         return 10 ** (-path_loss_db / 10)
 
+    # 🌟 CẢI TIẾN 5: Chuyển đổi cơ chế ON/OFF thô lậu sang Contention Probability mềm mại của CSMA/CA
     def _get_active_aps(self):
         active_aps = []
         for ap in self.aps:
@@ -165,15 +181,18 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             for other_ap in self.aps:
                 if other_ap['id'] != ap['id']:
                     dist = self._calculate_distance(ap, other_ap)
-                    gain = self._calculate_channel_gain(dist)
+                    gain = self._calculate_channel_gain(dist, shadowing_db=0)
                     interference_received += other_ap['tx_power'] * gain
+            
             cca_watt = 10 ** (ap['cca_threshold'] / 10) * 1e-3
-            if interference_received < cca_watt:
+            
+            # Tính toán xác suất va chạm cạnh tranh kênh truyền theo hàm mũ mềm
+            activity_prob = np.exp(-interference_received / (cca_watt * 10)) # Scale nhẹ để giữ độ nhạy
+            if np.random.rand() < activity_prob:
                 active_aps.append(ap)
         return active_aps
 
     def _calculate_individual_ap_throughput(self, active_aps):
-        """Tính toán chi tiết tốc độ (Mbps) của từng AP để phân phối vào hàm thưởng"""
         throughputs = [0.0] * self.num_agents
         for ap in active_aps:
             bss_stas = [sta for sta in self.stas if sta['ap_id'] == ap['id']]
@@ -183,14 +202,15 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             ap_thr_bps = 0
             for sta in bss_stas:
                 dist_signal = self._calculate_distance(ap, sta)
-                gain_signal = self._calculate_channel_gain(dist_signal)
+                # Kèm cặp đúng mã định danh Shadowing cố định của STA
+                gain_signal = self._calculate_channel_gain(dist_signal, sta['shadowing_db'])
                 signal_power = ap['tx_power'] * gain_signal
                 
                 interference_power = 0
                 for other_ap in active_aps:
                     if other_ap['id'] != ap['id']:
                         dist_interf = self._calculate_distance(other_ap, sta)
-                        gain_interf = self._calculate_channel_gain(dist_interf)
+                        gain_interf = self._calculate_channel_gain(dist_interf, sta['shadowing_db'])
                         interference_power += other_ap['tx_power'] * gain_interf
                         
                 sinr = signal_power / (interference_power + config.NOISE_POWER)
@@ -210,14 +230,14 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             
             for sta in bss_stas:
                 dist_signal = self._calculate_distance(ap, sta)
-                gain_signal = self._calculate_channel_gain(dist_signal)
+                gain_signal = self._calculate_channel_gain(dist_signal, sta['shadowing_db'])
                 signal_power = ap['tx_power'] * gain_signal
                 
                 interference_power = 0
                 for other_ap in active_aps:
                     if other_ap['id'] != ap['id']:
                         dist_interf = self._calculate_distance(other_ap, sta)
-                        gain_interf = self._calculate_channel_gain(dist_interf)
+                        gain_interf = self._calculate_channel_gain(dist_interf, sta['shadowing_db'])
                         interference_power += other_ap['tx_power'] * gain_interf
                         
                 sinr = signal_power / (interference_power + config.NOISE_POWER)
@@ -237,6 +257,7 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
 
         return total_throughput_mbps, jain_index
 
+    # 🌟 CẢI TIẾN 3: Thuật toán Water-Filling có bộ lọc Smoothing công suất tránh giật cục bộ
     def _apply_water_filling(self, active_aps):
         if not active_aps:
             return
@@ -246,7 +267,7 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
             for other_ap in active_aps:
                 if other_ap['id'] != ap['id']:
                     dist = self._calculate_distance(other_ap, ap)
-                    gain = self._calculate_channel_gain(dist)
+                    gain = self._calculate_channel_gain(dist, shadowing_db=0)
                     interference += config.P_MAX * gain
             
             total_noise_penalty = interference + config.NOISE_POWER
@@ -256,7 +277,6 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
         mu_high = 10.0
         mu_optimal = 0.0
         
-        # Tìm kiếm nhị phân để rót nước phân bổ công suất
         for _ in range(30):
             mu_mid = (mu_low + mu_high) / 2
             total_allocated = 0
@@ -265,7 +285,7 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
                 power = min(power, config.P_MAX)
                 total_allocated += power
                 
-            if total_allocated > (config.P_MAX * self.num_agents): # Budget tổng mạng
+            if total_allocated > (config.P_MAX * self.num_agents):
                 mu_high = mu_mid
             else:
                 mu_low = mu_mid
@@ -274,4 +294,8 @@ class WiFiEnv(gym.Env): # KẾ THỪA CHUẨN GYMNASIUM ĐA TÁC TỬ
         for i, ap in enumerate(active_aps):
             optimal_power = max(mu_optimal - noise_levels[i], 0)
             optimal_power = min(optimal_power, config.P_MAX)
-            self.aps[ap['id']]['tx_power'] = optimal_power
+            
+            # Áp bộ lọc trượt quán tính công suất: Giữ 80% cấu hình cũ, chỉ đổi 20% theo kịch bản mới
+            old_power = self.aps[ap['id']]['tx_power']
+            smoothed_power = (0.8 * old_power) + (0.2 * optimal_power)
+            self.aps[ap['id']]['tx_power'] = smoothed_power

@@ -57,7 +57,7 @@ def train_marl():
     optimizer = optim.Adam(all_parameters, lr=0.001)
     gamma = 0.99
     batch_size = 64
-    episodes = 100 
+    episodes = 1000
     beta_ib = 0.01 # Hệ số phạt nén thông tin rác của bộ lọc IB
     
     history_network_throughput = []
@@ -172,10 +172,6 @@ def train_marl():
                 optimizer.zero_grad()
                 marl_ib_loss.backward()
                 optimizer.step()
-                
-                for agent_id in env.agent_ids:
-                    if agents[agent_id].epsilon > agents[agent_id].epsilon_min:
-                        agents[agent_id].epsilon *= agents[agent_id].epsilon_decay
 
             states_dict = next_states_dict
             total_network_throughput += info['throughput']
@@ -190,6 +186,10 @@ def train_marl():
             target_q_mixer.load_state_dict(q_mixer.state_dict())
             for agent_id in env.agent_ids:
                 agents[agent_id].target_network.load_state_dict(agents[agent_id].q_network.state_dict())
+
+        for agent_id in env.agent_ids:
+                    if agents[agent_id].epsilon > agents[agent_id].epsilon_min:
+                        agents[agent_id].epsilon *= agents[agent_id].epsilon_decay
                 
         avg_throughput = total_network_throughput / 100
         avg_jfi = total_jfi / 100
