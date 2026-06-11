@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import numpy as np
 import random
+import copy
 from collections import deque
 from agent.ib_helper import InformationBottleneckEncoder
 
@@ -47,35 +48,35 @@ class DoubleDQNAgent:
         self.state_size = state_size
         self.action_size = action_size
         self.latent_size = latent_size
-        
+
         # Thêm bộ mã hóa Information Bottleneck cục bộ
         self.encoder = InformationBottleneckEncoder(input_dim=state_size, latent_dim=latent_size)
-        
+        self.target_encoder = copy.deepcopy(self.encoder)
+
         self.q_network = QNetwork(latent_size, action_size)
         self.target_network = QNetwork(latent_size, action_size)
         self.target_network.load_state_dict(self.q_network.state_dict())
-        
+
         self.memory = ReplayBuffer()
         self.epsilon = 1.0
         self.epsilon_min = 0.05
-        self.epsilon_decay = 0.995
+        self.epsilon_decay = 0.99
 
     def act(self, state):
         # A. Pha khám phá ngẫu nhiên (Epsilon-Greedy)
         if np.random.rand() <= self.epsilon:
             import random
             return random.randrange(self.action_size)
-            
+
         device = next(self.q_network.parameters()).device
-        
+
         # Đẩy state_tensor lên đúng thiết bị GPU/CPU đó
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
-        
+
         with torch.no_grad():
-            # Bộ lọc IB nén dữ liệu (Mô hình và dữ liệu đã cùng trên GPU)
-            mu, log_var = self.encoder(state_tensor)
-            z = self.encoder.reparameterize(mu, log_var)
-            
+            # Khi exploit, dùng mean latent để policy ổn định thay vì sampling thêm nhiễu.
+            mu, _ = self.encoder(state_tensor)
+
             # Dự đoán giá trị Q và lấy hành động có điểm cao nhất
-            q_values = self.q_network(z)
+            q_values = self.q_network(mu)
             return torch.argmax(q_values, dim=1).item()

@@ -11,10 +11,29 @@ class ExperimentLogger:
         # Khởi tạo file và ghi hàng tiêu đề (Header)
         with open(self.filepath, mode='w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow(["Episode", "Throughput_Mbps", "JFI", "MARL_Reward"])
+            writer.writerow([
+                "Episode",
+                "Throughput_Mbps",
+                "JFI",
+                "MARL_Reward",
+                "Active_APs",
+                "Eval_Throughput_Mbps",
+                "Eval_JFI",
+                "Eval_Active_APs"
+            ])
 
-    def log_episode(self, episode, throughput, jfi, reward):
+    def log_episode(self, episode, throughput, jfi, reward, active_aps, eval_metrics=None):
         """Lưu lại thông số của từng ván vào file CSV"""
+        eval_metrics = eval_metrics or {}
         with open(self.filepath, mode='a', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
-            writer.writerow([episode, round(throughput, 2), round(jfi, 3), round(reward, 2)])
+            writer.writerow([
+                episode,
+                round(throughput, 2),
+                round(jfi, 3),
+                round(reward, 2),
+                round(active_aps, 2),
+                round(eval_metrics["throughput"], 2) if eval_metrics else "",
+                round(eval_metrics["jfi"], 3) if eval_metrics else "",
+                round(eval_metrics["active_aps"], 2) if eval_metrics else ""
+            ])
