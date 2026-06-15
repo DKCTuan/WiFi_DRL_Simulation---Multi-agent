@@ -46,6 +46,7 @@ def plot_learning_curve(
     plt.tight_layout()
     train_save_path = os.path.join(save_dir, "marl_learning_curve.png")
     plt.savefig(train_save_path, dpi=300)
+    plt.close(fig)
     print(f"Saved training curve to: {train_save_path}")
 
     if not eval_episodes:
@@ -75,4 +76,45 @@ def plot_learning_curve(
     plt.tight_layout()
     eval_save_path = os.path.join(save_dir, "eval_learning_curve.png")
     plt.savefig(eval_save_path, dpi=300)
+    plt.close(fig)
     print(f"Saved fixed-eval curve to: {eval_save_path}")
+
+
+def plot_comparison_curve(histories, save_dir="results/comparison_plots", window=25):
+    os.makedirs(save_dir, exist_ok=True)
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 7), sharex=True)
+
+    for history in histories:
+        label = history["label"]
+        throughput = history["throughput"]
+        jfi = history["jfi"]
+        episodes = range(1, len(throughput) + 1)
+
+        ma_thr = _moving_average(throughput, window)
+        ma_jfi = _moving_average(jfi, window)
+
+        ax1.plot(episodes, throughput, alpha=0.18)
+        if ma_thr is not None:
+            ax1.plot(range(window, len(throughput) + 1), ma_thr, linewidth=2, label=f"{label} MA-{window}")
+
+        ax2.plot(episodes, jfi, alpha=0.18)
+        if ma_jfi is not None:
+            ax2.plot(range(window, len(jfi) + 1), ma_jfi, linewidth=2, label=f"{label} MA-{window}")
+
+    ax1.set_title("Power allocation comparison", fontsize=12, fontweight="bold")
+    ax1.set_ylabel("Throughput (Mbps)", fontsize=10)
+    ax1.legend(loc="lower right")
+    ax1.grid(True, linestyle=":", alpha=0.6)
+
+    ax2.set_xlabel("Episode", fontsize=11)
+    ax2.set_ylabel("JFI", fontsize=10)
+    ax2.set_ylim(0, 1.05)
+    ax2.legend(loc="lower right")
+    ax2.grid(True, linestyle=":", alpha=0.6)
+
+    plt.tight_layout()
+    save_path = os.path.join(save_dir, "water_filling_comparison.png")
+    plt.savefig(save_path, dpi=300)
+    plt.close(fig)
+    print(f"Saved water-filling comparison to: {save_path}")

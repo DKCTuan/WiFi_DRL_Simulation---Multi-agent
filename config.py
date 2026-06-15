@@ -22,6 +22,9 @@ CCA_THRESHOLDS = [-82, -78, -74, -70, -66, -62, -58] # Tập ngưỡng CCA (dBm)
 DEFAULT_CCA = -70           # Ngưỡng CCA mặc định
 OBS_SIZE = 7
 
+# Reproducibility
+GLOBAL_SEED = 2026
+
 # --- CÔNG SUẤT VÀ NĂNG LƯỢNG ---
 MAX_TX_POWER_DBM = 20  # Công suất tối đa của 1 AP (100mW)
 MAX_TX_POWER_W = 10 ** (MAX_TX_POWER_DBM / 10) * 1e-3
@@ -38,4 +41,16 @@ USE_WATER_FILLING_BASELINE = False
 # của policy, thay vì bị nhiễu bởi việc reset ngẫu nhiên vị trí STA/shadowing.
 FIXED_TRAIN_SCENARIO = True
 TRAIN_SCENARIO_SEED = 2026
-TRAIN_MOBILITY_ENABLED = False
+TRAIN_MOBILITY_ENABLED = True
+
+# Evaluation mode:
+# - "fixed": evaluate on the same initial topology used during training.
+# - "generalization": evaluate on newly sampled topologies.
+EVAL_MODE = "fixed"
+
+REWARD_TOTAL_THROUGHPUT_REF_MBPS = 500.0
+REWARD_GLOBAL_WEIGHT = 0.40
+REWARD_LOCAL_WEIGHT = 0.20
+REWARD_FAIRNESS_WEIGHT = 0.40
+TARGET_UPDATE_TAU = 0.005
+TRAIN_EPISODES = 500

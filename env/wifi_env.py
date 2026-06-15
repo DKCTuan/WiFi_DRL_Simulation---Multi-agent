@@ -10,13 +10,23 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 
 class WiFiEnv(gym.Env):
-    def __init__(self, verbose=True, fixed_topology=False, fixed_seed=None, mobility_enabled=True):
+    def __init__(
+        self,
+        verbose=True,
+        fixed_topology=False,
+        fixed_seed=None,
+        mobility_enabled=True,
+        use_water_filling=None,
+        action_size=5
+    ):
         super().__init__()
         if verbose:
             print("Đang khởi tạo Môi trường Multi-Agent WiFi (Nâng cấp chuẩn Research: Smooth Mobility + VIB)...")
         self.fixed_topology = fixed_topology
         self.fixed_seed = fixed_seed
         self.mobility_enabled = mobility_enabled
+        self.use_water_filling = config.USE_WATER_FILLING_BASELINE if use_water_filling is None else use_water_filling
+        self.action_size = action_size
         self._fixed_aps = None
         self._fixed_stas = None
 
@@ -24,7 +34,7 @@ class WiFiEnv(gym.Env):
         self.agent_ids = [f"ap_{i}" for i in range(self.num_agents)]
 
         self.action_space = spaces.Dict({
-            agent_id: spaces.Discrete(5)  # 3 CCA + 2 power = 5 actions
+            agent_id: spaces.Discrete(self.action_size)
             for agent_id in self.agent_ids
         })
 
@@ -55,7 +65,8 @@ class WiFiEnv(gym.Env):
             )
             sinr_list.append(signal / (interf + config.NOISE_POWER))
 
-        avg_sinr_db = 10 * np.log10(np.mean(sinr_list) + 1e-10)
+        avg_sinr = float(np.mean(sinr_list)) if sinr_list else 0.0
+        avg_sinr_db = 10 * np.log10(avg_sinr + 1e-10)
 
         cca_idx = config.CCA_THRESHOLDS.index(ap['cca_threshold'])
 
@@ -148,7 +159,7 @@ class WiFiEnv(gym.Env):
 
         # CẬP NHẬT TRẠNG THÁI MẠNG VÀ PHÂN BỔ CÔNG SUẤT
         active_aps = self._get_active_aps()
-        if config.USE_WATER_FILLING_BASELINE:
+        if self.use_water_filling:
             self._apply_water_filling(active_aps)
         total_throughput, jain_index = self._compute_throughput_from(active_aps)
         ap_throughputs = self._calculate_individual_ap_throughput(active_aps)
@@ -159,37 +170,25 @@ class WiFiEnv(gym.Env):
 
         # C. TÍNH TOÁN HÀM THƯỞNG CÂN BẰNG
         rewards_dict = {}
-        # Thay đoạn reward cũ bằng đoạn này
-        MAX_LOCAL = 100.0
-        MAX_TOTAL = MAX_LOCAL * self.num_agents
+        avg_local_thr = max(float(np.mean(ap_throughputs)), 1.0)
+        total_thr_norm = float(np.clip(total_throughput / config.REWARD_TOTAL_THROUGHPUT_REF_MBPS, 0, 1))
 
         for i, agent_id in enumerate(self.agent_ids):
             local_thr = ap_throughputs[i]
-            is_active = float(self.aps[i] in active_aps)
-            coverage_score = active_ratio ** 2
+            local_thr_norm = float(np.clip(local_thr / (2.0 * avg_local_thr), 0, 1))
 
-            interference_penalty = 0
-            if self.aps[i] in active_aps:
-                for other_ap in active_aps:
-                    if other_ap['id'] != i:
-                        dist = self._calculate_distance(self.aps[i], other_ap)
-                        gain = self._calculate_channel_gain(dist, shadowing_db=0)
-                        interference_penalty += other_ap['tx_power'] * gain
-
-            if interference_penalty > 0:
-                interf_dbm = 10 * np.log10(interference_penalty / 1e-3)
-                interf_norm = np.clip((interf_dbm + 120) / 60, 0, 1)
-            else:
-                interf_norm = 0.0
-
-            rewards_dict[agent_id] = (
-                0.05 * (local_thr / MAX_LOCAL) +
-                0.30 * (total_throughput / MAX_TOTAL) +
-                0.35 * jain_index +
-                0.20 * coverage_score +
-                0.20 * is_active -
-                0.1 * interf_norm
+            reward = (
+                config.REWARD_GLOBAL_WEIGHT * total_thr_norm +
+                config.REWARD_LOCAL_WEIGHT * local_thr_norm +
+                config.REWARD_FAIRNESS_WEIGHT * jain_index
             )
+            rewards_dict[agent_id] = float(np.clip(reward, 0, 1))
+
+        mean_local_thr_norm = float(np.mean([
+            np.clip(thr / (2.0 * avg_local_thr), 0, 1)
+            for thr in ap_throughputs
+        ]))
+        team_reward = float(np.mean(list(rewards_dict.values())))
 
         terminated = False
         truncated = bool(self.current_step >= self.max_steps)
@@ -199,7 +198,13 @@ class WiFiEnv(gym.Env):
             "jfi": jain_index,
             "ap_individual_throughputs": ap_throughputs,
             "active_ap_count": len(active_aps),
-            "active_ratio": active_ratio
+            "active_ratio": active_ratio,
+            "team_reward": team_reward,
+            "reward_components": {
+                "total_thr_norm": total_thr_norm,
+                "mean_local_thr_norm": mean_local_thr_norm,
+                "jfi": jain_index,
+            },
         }
 
         return obs_dict, rewards_dict, terminated, truncated, info
@@ -262,7 +267,7 @@ class WiFiEnv(gym.Env):
                     gain = self._calculate_channel_gain(dist, shadowing_db=0)
                     interference_received += other_ap['tx_power'] * gain
 
-            # ✅ Đổi sang dBm để so sánh đúng với CCA threshold
+            # Đổi sang dBm để so sánh đúng với CCA threshold
             if interference_received > 0:
                 interference_dbm = 10 * np.log10(interference_received / 1e-3)
             else:

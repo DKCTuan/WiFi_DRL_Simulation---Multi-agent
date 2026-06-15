@@ -3,22 +3,39 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import argparse
 import config
 
 from env.wifi_env import WiFiEnv
 from agent.double_dqn import DoubleDQNAgent
 
-def run_visual_simulation():
+
+def resolve_model_dir(experiment):
+    experiment_dir = os.path.join("results", experiment, "models") if experiment else None
+    if experiment == "water_filling":
+        return experiment_dir
+
+    candidates = [experiment_dir, os.path.join("results", "models")]
+    for path in candidates:
+        if path and os.path.isdir(path):
+            return path
+    return experiment_dir
+
+
+def run_visual_simulation(experiment="no_water_filling", action_size=None):
     print("=== ĐANG KHỞI CHẠY MÔ PHỎNG ĐỒ HỌA TRỰC QUAN 2D WI-FI MARL ===")
 
     # 1. Khởi tạo môi trường
-    env = WiFiEnv()
+    use_water_filling = experiment == "water_filling"
+    action_size = action_size or (3 if use_water_filling else 5)
+    env = WiFiEnv(use_water_filling=use_water_filling, action_size=action_size)
     num_agents = env.num_agents
     latent_size = 16
+    model_dir = resolve_model_dir(experiment)
 
     # Kích hoạt chế độ kiểm thử (Không tò mò ngẫu nhiên nữa)
     agents = {
-        agent_id: DoubleDQNAgent(state_size=config.OBS_SIZE, action_size=5, latent_size=16)
+        agent_id: DoubleDQNAgent(state_size=config.OBS_SIZE, action_size=action_size, latent_size=latent_size)
         for agent_id in env.agent_ids
     }
 
@@ -28,10 +45,10 @@ def run_visual_simulation():
     for agent_id in env.agent_ids:
         agents[agent_id].epsilon = 0.0  # Tắt hoàn toàn thám hiểm để AI dùng 100% não khôn
 
-        best_model_path = f"results/models/best_ib_qmix_{agent_id}_model.pth"
-        best_encoder_path = f"results/models/best_ib_encoder_{agent_id}.pth"
-        model_path = best_model_path if os.path.exists(best_model_path) else f"results/models/ib_qmix_{agent_id}_model.pth"
-        encoder_path = best_encoder_path if os.path.exists(best_encoder_path) else f"results/models/ib_encoder_{agent_id}.pth"
+        best_model_path = os.path.join(model_dir, f"best_ib_qmix_{agent_id}_model.pth")
+        best_encoder_path = os.path.join(model_dir, f"best_ib_encoder_{agent_id}.pth")
+        model_path = best_model_path if os.path.exists(best_model_path) else os.path.join(model_dir, f"ib_qmix_{agent_id}_model.pth")
+        encoder_path = best_encoder_path if os.path.exists(best_encoder_path) else os.path.join(model_dir, f"ib_encoder_{agent_id}.pth")
 
         if os.path.exists(model_path) and os.path.exists(encoder_path):
             # Load trọng số an toàn lên CPU phục vụ render đồ họa
@@ -112,4 +129,8 @@ def run_visual_simulation():
     plt.show()
 
 if __name__ == "__main__":
-    run_visual_simulation()
+    parser = argparse.ArgumentParser(description="Visualize a trained WiFi MARL policy.")
+    parser.add_argument("--experiment", default="no_water_filling", choices=["no_water_filling", "water_filling"])
+    parser.add_argument("--action-size", type=int, help="Override action space size for the loaded model.")
+    args = parser.parse_args()
+    run_visual_simulation(experiment=args.experiment, action_size=args.action_size)

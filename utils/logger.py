@@ -19,7 +19,8 @@ class ExperimentLogger:
                 "Active_APs",
                 "Eval_Throughput_Mbps",
                 "Eval_JFI",
-                "Eval_Active_APs"
+                "Eval_Active_APs",
+                "Eval_Mode"
             ])
 
     def log_episode(self, episode, throughput, jfi, reward, active_aps, eval_metrics=None):
@@ -35,5 +36,6 @@ class ExperimentLogger:
                 round(active_aps, 2),
                 round(eval_metrics["throughput"], 2) if eval_metrics else "",
                 round(eval_metrics["jfi"], 3) if eval_metrics else "",
-                round(eval_metrics["active_aps"], 2) if eval_metrics else ""
+                round(eval_metrics["active_aps"], 2) if eval_metrics else "",
+                eval_metrics.get("mode", "") if eval_metrics else ""
             ])
