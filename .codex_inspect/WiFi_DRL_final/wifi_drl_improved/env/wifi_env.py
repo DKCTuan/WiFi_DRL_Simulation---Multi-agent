@@ -228,41 +228,25 @@ class WiFiEnv(gym.Env):
         return aps
 
     def _setup_stas(self):
-        """
-        Sinh STA theo tung AP voi seed rieng biet dua tren AP id.
-        Dam bao tinh superset: K=6 luon chua dung 4 STA dau cua K=4,
-        chi them 2 STA moi - vi tri khong thay doi khi K tang.
-        """
         stas = []
         sta_id = 0
-        # Luu lai trang thai random hien tai de khong anh huong luong ngoai
-        outer_rng_state = np.random.get_state()
-
         for ap in self.aps:
             sta_count = config.AP_LOAD_PROFILE[ap['id']]
             radius_max = config.AP_STA_RADIUS_MAX[ap['id']]
             shadow_bias = config.AP_SHADOW_BIAS_DB[ap['id']]
-
-            # Seed rieng theo AP: dam bao STA thu i luon o cung vi tri
-            # du sta_count thay doi -> K lon hon la superset cua K nho hon
-            ap_seed = config.TRAIN_SCENARIO_SEED * 1000 + ap['id']
-            np.random.seed(ap_seed)
-
             for _ in range(sta_count):
                 radius = np.random.uniform(1, radius_max)
-                angle  = np.random.uniform(0, 2 * np.pi)
+                angle = np.random.uniform(0, 2 * np.pi)
                 stas.append({
                     'id': sta_id, 'ap_id': ap['id'],
                     'x': ap['x'] + radius * np.cos(angle),
                     'y': ap['y'] + radius * np.sin(angle),
+                    # Station-level shadowing approximation; per-link shadowing would change the channel model.
                     'shadowing_db': np.random.normal(shadow_bias, config.SHADOW_STD),
                     'vx': np.random.uniform(-0.1, 0.1),
                     'vy': np.random.uniform(-0.1, 0.1)
                 })
                 sta_id += 1
-
-        # Khoi phuc trang thai random ben ngoai
-        np.random.set_state(outer_rng_state)
         return stas
 
     def _calculate_distance(self, node1, node2):
