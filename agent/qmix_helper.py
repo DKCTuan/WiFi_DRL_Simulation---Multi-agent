@@ -1,6 +1,7 @@
 # agent/qmix_helper.py
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 class QMixer(nn.Module):
     def __init__(self, num_agents=3, state_dim=3):
@@ -35,7 +36,7 @@ class QMixer(nn.Module):
         b1 = self.hyper_b1(global_state).view(-1, 1, self.embed_dim)
         
         # Lớp ẩn trộn phi tuyến 1
-        hidden = torch.relu(torch.bmm(agent_qs, w1) + b1)
+        hidden = F.elu(torch.bmm(agent_qs, w1) + b1)
         
         # Tạo trọng số lớp 2 và ép dương
         w2 = torch.abs(self.hyper_w2(global_state))

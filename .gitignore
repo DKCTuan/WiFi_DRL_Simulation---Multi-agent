@@ -5,6 +5,9 @@ venv/
 
 results/models/*.pth
 *.pth
+*.pt
+*.zip
+results_data/
 
 .DS_Store
 Thumbs.db

@@ -14,6 +14,14 @@ class InformationBottleneckEncoder(nn.Module):
         h = torch.relu(self.fc1(x))
         mu = self.fc_mu(h)
         log_var = self.fc_log_var(h)
+        # Clamp để tránh std = exp(0.5*log_var) bùng nổ theo hàm mũ khi log_var
+        # bị đẩy lên giá trị dương lớn trong lúc train (nhất là khi IB_BETA rất
+        # nhỏ như 0.001, áp lực kéo log_var về 0 gần như không đáng kể so với
+        # TD-loss). Không clamp có thể khiến z = mu + eps*std cực kỳ nhiễu ở một
+        # vài seed cụ thể, làm training "gãy" ngẫu nhiên (variance cao bất
+        # thường, không phản ánh hiệu ứng thật của VIB). Đây là thực hành chuẩn
+        # trong các cài đặt VAE/VIB, không đổi công thức KL hay bản chất bottleneck.
+        log_var = torch.clamp(log_var, min=-10.0, max=10.0)
         return mu, log_var
 
     def reparameterize(self, mu, log_var):

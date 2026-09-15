@@ -100,6 +100,7 @@ for k in K_LIST:
                 use_water_filling=use_wf,
                 action_size=action_size,
                 eval_mode="fixed",
+                num_stas=k,
             )
             thr_list.append(metrics["throughput"])
             jfi_list.append(metrics["jfi"])

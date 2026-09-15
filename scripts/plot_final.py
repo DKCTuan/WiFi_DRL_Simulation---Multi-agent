@@ -1,10 +1,10 @@
 """
 scripts/plot_final.py
 =====================
-Vẽ 4 hình cuối từ data .txt đã collect từ v1–v4.
+Vẽ 6 hình từ data .txt đã collect từ v1–v4 (6 K).
 
 Cách dùng:
-  1. Download tất cả file .txt từ results/data/ của 4 Kaggle version
+  1. Download tất cả file .txt từ results/data/ của các Kaggle version
   2. Đặt vào cùng 1 thư mục DATA_DIR (mặc định: results/data/)
   3. Chạy: python scripts/plot_final.py
 
@@ -12,7 +12,9 @@ Output: results/figures/
   ├── fig1_training_throughput.png
   ├── fig2_training_jfi.png
   ├── fig3_eval_throughput_vs_K.png
-  └── fig4_eval_jfi_vs_K.png
+  ├── fig4_eval_jfi_vs_K.png
+  ├── fig5_training_active_ap.png
+  └── fig6_eval_active_ap_vs_K.png
 """
 
 import os, sys
@@ -35,19 +37,20 @@ def load_txt(path):
     if not os.path.exists(path):
         raise FileNotFoundError(f"Không tìm thấy file: {path}\n"
                                 f"Hãy chắc chắn đã copy đủ data từ các Kaggle version vào {DATA_DIR}/")
-    headers = None
+    header_lines = []
     rows = []
     with open(path) as f:
         for line in f:
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("# ") and headers is None:
-                continue           # dòng tiêu đề đầu (mô tả)
             if line.startswith("# "):
-                headers = line[2:].split("\t")
+                header_lines.append(line[2:])   # có thể là dòng mô tả HOẶC dòng tên cột
                 continue
             rows.append([float(x) for x in line.split("\t")])
+    if not header_lines:
+        raise ValueError(f"Không tìm thấy dòng header (bắt đầu bằng '# ') trong {path}")
+    headers = header_lines[-1].split("\t")   # dòng '#' cuối cùng trước data luôn là tên cột
     data = np.array(rows)
     return {h: data[:, i] for i, h in enumerate(headers)}
 
@@ -81,7 +84,7 @@ W       = _cfg.PLOT_SMOOTHING_WINDOW
 # ══════════════════════════════════════════════════════════════════════════════
 # HÌNH 1 — Training Throughput
 # ══════════════════════════════════════════════════════════════════════════════
-print("\n[1/4] Vẽ training_throughput ...")
+print("\n[1/6] Vẽ training_throughput ...")
 fig, ax = plt.subplots(figsize=(9, 5))
 
 for k in K_TRAIN:
@@ -109,7 +112,7 @@ print(f"  → Saved: {p}")
 # ══════════════════════════════════════════════════════════════════════════════
 # HÌNH 2 — Training JFI
 # ══════════════════════════════════════════════════════════════════════════════
-print("[2/4] Vẽ training_jfi ...")
+print("[2/6] Vẽ training_jfi ...")
 fig, ax = plt.subplots(figsize=(9, 5))
 
 for k in K_TRAIN:
@@ -137,7 +140,7 @@ print(f"  → Saved: {p}")
 # ══════════════════════════════════════════════════════════════════════════════
 # HÌNH 3 — Eval Throughput vs K
 # ══════════════════════════════════════════════════════════════════════════════
-print("[3/4] Vẽ eval_throughput_vs_K ...")
+print("[3/6] Vẽ eval_throughput_vs_K ...")
 fig, ax = plt.subplots(figsize=(9, 5))
 
 for label_key in ["Hybrid_WF", "Full_AI"]:
@@ -168,7 +171,7 @@ print(f"  → Saved: {p}")
 # ══════════════════════════════════════════════════════════════════════════════
 # HÌNH 4 — Eval JFI vs K
 # ══════════════════════════════════════════════════════════════════════════════
-print("[4/4] Vẽ eval_jfi_vs_K ...")
+print("[4/6] Vẽ eval_jfi_vs_K ...")
 fig, ax = plt.subplots(figsize=(9, 5))
 
 for label_key in ["Hybrid_WF", "Full_AI"]:
@@ -197,4 +200,63 @@ plt.close(fig)
 print(f"  → Saved: {p}")
 
 # ══════════════════════════════════════════════════════════════════════════════
-print(f"\n✓ Hoàn tất! 4 hình đã lưu tại: {FIGURES_DIR}/")
+# HÌNH 5 — Training Active-AP ratio (K=10 vs K=12) — đối chiếu Fig1/Fig2
+# ══════════════════════════════════════════════════════════════════════════════
+print("[5/6] Vẽ training_active_ap ...")
+fig, ax = plt.subplots(figsize=(9, 5))
+
+for k in K_TRAIN:
+    for label_key in ["Hybrid_WF", "Full_AI"]:
+        fname = os.path.join(DATA_DIR, f"training_K{k}_{label_key}.txt")
+        d = load_txt(fname)
+        ma, x = smooth(d["ActiveAP_mean"], W)
+        st = TRAIN_STYLE[(f"K{k}", label_key)]
+        ax.plot(x, ma,
+                color=st["color"], marker=st["marker"], linestyle=st["ls"],
+                markevery=50, markersize=6, linewidth=1.8,
+                label=st["label"])
+
+ax.set_xlabel("Episode", fontsize=12)
+ax.set_ylabel("Active AP Count", fontsize=12)
+ax.set_title("Training Comparison — Active-AP Ratio (6 APs)", fontsize=13)
+ax.legend(fontsize=10)
+ax.grid(True, linestyle="--", alpha=0.4)
+plt.tight_layout()
+p = os.path.join(FIGURES_DIR, "fig5_training_active_ap.png")
+fig.savefig(p, dpi=200)
+plt.close(fig)
+print(f"  → Saved: {p}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# HÌNH 6 — Eval Active-AP ratio vs K — đối chiếu Fig3/Fig4
+# ══════════════════════════════════════════════════════════════════════════════
+print("[6/6] Vẽ eval_active_ap_vs_K ...")
+fig, ax = plt.subplots(figsize=(9, 5))
+
+for label_key in ["Hybrid_WF", "Full_AI"]:
+    aps, stds = [], []
+    for k in K_EVAL:
+        fname = os.path.join(DATA_DIR, f"eval_summary_K{k}_{label_key}.txt")
+        d = load_txt(fname)
+        aps.append(float(d["ActiveAP_mean"][0]))
+        stds.append(float(d["ActiveAP_std"][0]))
+    st = EVAL_STYLE[label_key]
+    ax.errorbar(K_EVAL, aps, yerr=stds,
+                color=st["color"], marker=st["marker"], linestyle=st["ls"],
+                markersize=8, linewidth=1.8, capsize=4,
+                label=st["label"])
+
+ax.set_xlabel("Clients per AP (K)", fontsize=12)
+ax.set_ylabel("Active AP Count", fontsize=12)
+ax.set_title("Evaluation — Active-AP Ratio vs K (6 APs)", fontsize=13)
+ax.set_xticks(K_EVAL)
+ax.legend(fontsize=10)
+ax.grid(True, linestyle="--", alpha=0.4)
+plt.tight_layout()
+p = os.path.join(FIGURES_DIR, "fig6_eval_active_ap_vs_K.png")
+fig.savefig(p, dpi=200)
+plt.close(fig)
+print(f"  → Saved: {p}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+print(f"\n✓ Hoàn tất! 6 hình đã lưu tại: {FIGURES_DIR}/")
