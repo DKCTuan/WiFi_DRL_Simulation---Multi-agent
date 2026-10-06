@@ -1,5 +1,8 @@
 # env/active_set.py
 """
+V5 defaults to fresh slotted contention via get_slot_active_aps. The legacy
+EWMA implementation below is retained only for explicit diagnostic controls.
+
 Xác định tập AP active (Section 2.3, công thức (2) trong bài báo), có thêm
 2 cơ chế làm mượt KHÔNG có trong công thức gốc của bài (engineering trick để
 tránh active-set "nhấp nháy" liên tục giữa các step, vốn là một nguồn gây
@@ -35,12 +38,45 @@ def calculate_ap_interference_dbm(ap, aps, transmitting_ids=None):
     return -150.0
 
 
-def get_active_aps(aps, ewma_dbm_state, active_state, ewma_alpha, hysteresis_db):
+def get_slot_active_aps(aps, priority_order, sensed_dbm_state, active_state):
+    """One finite transmission opportunity with fresh local contention.
+
+    A random priority is an idealized collision-free backoff order. Each AP
+    senses only APs already admitted in THIS slot, using their previous applied
+    powers as estimates. No EWMA, previous-winner privilege, or ID fallback is
+    applied. Later arrivals may interfere with earlier transmitters (hidden
+    terminals are not magically removed by a centralized feasibility test).
+    WF/power actions follow admission, so this is not packet-level DCF and
+    does not guarantee carrier-sense feasibility after power reallocation.
+    """
+    by_id = {ap['id']: ap for ap in aps}
+    order = list(priority_order)
+    if len(order) != len(by_id) or set(order) != set(by_id):
+        raise ValueError('Contention priority must contain every AP ID once')
+    admitted = []
+    for ap_id in order:
+        ap = by_id[ap_id]
+        sensed = calculate_ap_interference_dbm(ap, admitted)
+        sensed_dbm_state[ap_id] = float(sensed)
+        active_state[ap_id] = bool(sensed < ap['cca_threshold'])
+        if active_state[ap_id]:
+            admitted.append(ap)
+    return sorted(admitted, key=lambda ap: ap['id'])
+
+
+def get_active_aps(aps, ewma_dbm_state, active_state, ewma_alpha, hysteresis_db,
+                   *, access_mode='legacy_ewma', priority_order=None):
     """
     Trả về danh sách AP đang active, dùng EWMA + hysteresis để làm mượt.
     `ewma_dbm_state` và `active_state` là list[float/bool] theo ap_id,
     được cập nhật in-place (giữ trạng thái xuyên suốt các lần gọi step()).
     """
+    if access_mode == 'slot_contention':
+        if priority_order is None:
+            raise ValueError('slot_contention requires an explicit priority order')
+        return get_slot_active_aps(aps, priority_order, ewma_dbm_state, active_state)
+    if access_mode != 'legacy_ewma':
+        raise ValueError(f'Unknown CCA access mode: {access_mode}')
     active_aps = []
     # Snapshot the transmitters from the previous slot. Previously every AP,
     # including inactive APs, contributed interference despite receiving zero

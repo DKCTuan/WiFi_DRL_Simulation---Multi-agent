@@ -1,0 +1,59 @@
+{
+  "date": "2026-10-06",
+  "core_tests": {
+    "passed": 25,
+    "failed": 0
+  },
+  "exact_episode_resume_checked_for": [
+    "ai_only",
+    "ai_wf"
+  ],
+  "smoke_cli": {
+    "passed": true,
+    "slots_per_arm": 12,
+    "arms": 2,
+    "policies_untrained": true
+  },
+  "matched_action_parity": {
+    "passed": true,
+    "matched_slots": 800,
+    "arms": [
+      "ai_only",
+      "ai_wf"
+    ],
+    "access_seeds": [
+      17,
+      31
+    ],
+    "demand_enabled": [
+      false,
+      true
+    ],
+    "sta_count": 60,
+    "fixed_topology_seed": 2026,
+    "mobility_enabled": false,
+    "trace_sha256": "aad18d0ecff949e05778fe74a026284082f4956f65194fed8b5d1641a740e331",
+    "compared": [
+      "observations",
+      "rewards",
+      "terminal",
+      "throughput",
+      "JFI",
+      "STA rates",
+      "active APs",
+      "power",
+      "contention order",
+      "service status"
+    ]
+  },
+  "source_input_files_unchanged": 25,
+  "research_checkpoint_files_not_modified": true,
+  "runtime": {
+    "python": "3.12.14",
+    "numpy": "2.5.3",
+    "torch": "2.14.0",
+    "gymnasium": "1.3.0",
+    "matplotlib": "3.11.2"
+  },
+  "interpretation": "Code cleanup and baseline behavior parity, not a research performance comparison."
+}

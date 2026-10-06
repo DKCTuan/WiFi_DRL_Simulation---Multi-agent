@@ -68,7 +68,7 @@ class DoubleDQNAgent:
         self.epsilon_decay = epsilon_decay  # nhận từ ngoài để hybrid vs full-ai dùng khác nhau
 
     def act(self, state):
-        if np.random.rand() <= self.epsilon:
+        if self.epsilon > 0.0 and np.random.rand() < self.epsilon:
             return random.randrange(self.action_size)
 
         device = next(self.q_network.parameters()).device

@@ -5,12 +5,11 @@ Xây dựng vector observation 7 chiều cho mỗi agent — Section 4.1.
 import numpy as np
 import config
 from env.channel import calculate_distance, calculate_channel_gain
-from env.cooperation import neighbor_opportunity_scores
+from env.user_demand import local_demand_observation
 
 
 def build_observation(
     agent_idx, aps, stas, local_throughput, active_aps, ap_load_profile,
-    cooperation_enabled=False,
 ):
     ap = aps[agent_idx]
     bss_stas = [s for s in stas if s['ap_id'] == agent_idx]
@@ -43,6 +42,6 @@ def build_observation(
         float(ap['id'] in active_ap_ids),                      # AP này có đang active không
         len(active_ap_ids) / num_agents,                       # Tỷ lệ AP active toàn mạng
     ]
-    if cooperation_enabled:
-        observation.extend(neighbor_opportunity_scores(agent_idx, aps, stas))
+    if config.USER_DEMAND_ENABLED:
+        observation.extend(local_demand_observation(bss_stas))
     return np.asarray(observation, dtype=np.float32)

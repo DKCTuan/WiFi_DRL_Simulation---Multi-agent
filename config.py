@@ -1,6 +1,8 @@
 # config.py
 import numpy as np
 
+THREE_STAGE_PROTOCOL_VERSION = 'core-only-2026-10-06-v1'
+
 # 1. Cấu hình Mạng (Network Configuration)
 NUM_APS = 6
 NUM_STAS_PER_AP = 10          # default K, sẽ bị override bởi run_experiments.py
@@ -28,46 +30,17 @@ AP_SHADOW_BIAS_DB = [-2.0, -1.0, 0.5, 2.0, 3.5, 5.0]
 CCA_THRESHOLDS = [-82, -78, -74, -70, -66, -62, -58]
 DEFAULT_CCA = -70
 OBS_SIZE = 7
+USER_DEMAND_ENABLED = False
+# Synthetic sustained application demand, not measurements of real applications.
+USER_APPLICATION_PROFILES = (('messaging', 0.25), ('voice_call', 0.5),
+                             ('web', 2.0), ('video_call', 4.0),
+                             ('video_stream', 8.0), ('download', 20.0))
+USER_DEMAND_SEED = 2026
+USER_RESCUE_SATISFACTION_THRESHOLD = 0.8
+USER_RESCUE_GRACE_STEPS = 5
+USER_DEMAND_OBS_SIZE = 4
 HYBRID_ACTION_SIZE = len(CCA_THRESHOLDS)
 FULL_AI_ACTION_SIZE = len(CCA_THRESHOLDS) * len(TX_POWER_LEVELS)
-
-# Legacy cooperation experiment. It is preserved for reproduction only and is
-# not a standards-aligned Co-BF model. A Hybrid agent jointly selects its CCA
-# threshold and one target: none / left BSS / right BSS.
-COOPERATION_TARGET_OFFSETS = (None, -1, 1)
-COOPERATIVE_OBS_SIZE = OBS_SIZE + 2
-COOPERATIVE_HYBRID_ACTION_SIZE = len(CCA_THRESHOLDS) * len(COOPERATION_TARGET_OFFSETS)
-
-# Historical fixed-suppression abstraction. Do not report it as true Co-BF:
-# there is no antenna array, CSI, steering vector, or zero-forcing precoder.
-COBF_INTERFERENCE_SUPPRESSION_DB = 10.0
-COORDINATION_OVERHEAD_PER_LINK = 0.03
-COORDINATION_MIN_HELPER_RATIO = 0.05
-COORDINATION_MAX_HELPERS_PER_STA = 1
-
-# Literature-aligned Co-SR environment (kept separate from the legacy
-# CCA/Water-Filling environment).  One environment step is one MAPC TXOP.
-COSR_TXOP_DURATION_S = 5e-3
-COSR_FIXED_MAC_OVERHEAD_S = 0.2e-3
-COSR_COORDINATION_OVERHEAD_S_PER_EXTRA_AP = 0.1e-3
-COSR_PACKET_SIZE_BITS = 1500 * 8
-COSR_MEAN_ARRIVALS_PER_STA = 0.45
-COSR_INITIAL_MEAN_PACKETS_PER_STA = 2.0
-COSR_MAX_QUEUE_PACKETS = 200
-COSR_MAX_HOL_DELAY_TXOPS = 100
-COSR_MAX_GROUP_APS = 2
-COSR_COMPATIBILITY_TOLERANCE = 1e-9
-
-# Approximate 802.11ax/11be 20 MHz, one-spatial-stream PHY table.  Keeping the
-# table explicit is preferable to silently treating Shannon capacity as an
-# achievable packet rate.  It can be replaced by a measured/standard table
-# without changing the Co-SR scheduler.
-COSR_MCS_SINR_THRESHOLDS_DB = [-5, -2, 1, 4, 7, 10, 13, 16, 19, 22, 25, 28]
-COSR_MCS_RATES_MBPS = [8.6, 17.2, 25.8, 34.4, 51.6, 68.8,
-                       77.4, 86.0, 103.2, 114.7, 129.0, 143.4]
-
-# Discrete powers used by the pairwise proportional-fair Co-SR allocator.
-COSR_POWER_LEVELS_W = [0.01, 0.02, 0.05, 0.1]
 
 # Reproducibility
 GLOBAL_SEED = 2026
@@ -82,9 +55,15 @@ USE_WATER_FILLING_BASELINE = False
 FIXED_TRAIN_SCENARIO = True
 TRAIN_SCENARIO_SEED = 2026
 TRAIN_MOBILITY_ENABLED = True
+MULTI_LAYOUT_TRAINING = True
+TRAIN_LAYOUTS_PER_FAMILY = 4
+VALIDATION_LAYOUTS_PER_FAMILY = 2
+TEST_LAYOUTS_PER_FAMILY = 4
 
 # Evaluation
-EVAL_MODE = "fixed"
+EVAL_MODE = "validation"
+FIXED_VALIDATION_SEED_BASE = 10000
+FIXED_TEST_SEED_BASE = 20000
 
 # Reward weights
 REWARD_TOTAL_THROUGHPUT_REF_MBPS = 500.0
@@ -94,7 +73,17 @@ REWARD_LOCAL_WEIGHT = 0.10
 REWARD_FAIRNESS_WEIGHT = 0.35
 REWARD_ACTIVE_AP_WEIGHT = 0.10
 
-# CCA stability controls
+# Experimental first-branch objective. Legacy stays the default so historic
+# results/checkpoints retain their original meaning.
+REWARD_OBJECTIVE_MODE = 'legacy'
+ALIGNED_THROUGHPUT_WEIGHT = 0.5
+
+# Each step ends the previous transmission opportunity. APs contend again in
+# a seeded random order; no previous winner retains the channel by default.
+# This is a slotted carrier-sense abstraction, NOT full IEEE 802.11 DCF.
+CCA_ACCESS_MODE = 'slot_contention'
+
+# Legacy-only CCA stability controls (for explicit diagnostic comparisons).
 CCA_EWMA_ALPHA = 0.35
 CCA_HYSTERESIS_DB = 2.0
 
@@ -138,12 +127,9 @@ EPSILON_DECAY_FULL_AI = EPSILON_DECAY
 # ở khoảng ep 50-100 khi phần exploit dựa trên Q-values còn chưa hội tụ).
 LEARNING_STARTS = 2000
 
-# Curriculum cho phần thưởng "tiết kiệm AP": ramp tuyến tính từ 0 lên
-# REWARD_ACTIVE_AP_WEIGHT trong N episode đầu, thay vì bật full ngay từ đầu.
-# Mục tiêu: để agent học tốt throughput/fairness trước, rồi mới học đánh đổi
-# tắt AP — tránh trường hợp ở K thấp (K=4,6) agent tắt AP quá sớm/quá mạnh
-# trước khi hiểu rõ chi phí lên JFI, gây đảo ngược so với K cao.
-REWARD_ACTIVE_AP_WARMUP_EPISODES = 150
+# V5 uses the same stationary objective for train, validation and the shield.
+# Retained as a migration guard; nonzero values are rejected by train/eval.
+REWARD_ACTIVE_AP_WARMUP_EPISODES = 0
 
 # Same representation capacity for a controlled Hybrid-vs-Full comparison.
 LATENT_SIZE = 16
@@ -154,7 +140,7 @@ TRAIN_EPISODES = 1200   # tăng từ 700 — Full-AI hội tụ thật (dao đ�
                          # (68-81% ngân sách cũ), cần margin an toàn rộng hơn để chắc chắn hội tụ hẳn
 TRAIN_STEPS_PER_EPISODE = 100
 EVAL_INTERVAL = 50    # giãn ra từ 25 — giảm tổng overhead eval (trước đây eval tốn NHIỀU hơn cả train)
-EVAL_EPISODES = 40    # tăng từ 30 — mỗi checkpoint eval ổn định hơn (ít nhiễu hơn)
+EVAL_EPISODES = 12    # Two held-out validation layouts per scenario family.
 PLOT_SMOOTHING_WINDOW = 25
 PLOT_SKIP_INITIAL_EPISODES = 0
 

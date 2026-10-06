@@ -1,0 +1,49 @@
+{
+  "release": "core-only-2026-10-06-v1",
+  "source_files_before_extraction": {
+    "config.py": "2b47b5c976ba0d3087db76a818bd8bffc17e75d9785555fd3d115b76047e0cc7",
+    "agent/double_dqn.py": "7cdb738d0484ff1e168756d6d850f8861a3bf1e9dd30890436613732108b82be",
+    "agent/ib_helper.py": "aa0d1bc2ff738a1d5dfa40866701d994f0368f6a2be2a430319156241a1b412d",
+    "agent/qmix_helper.py": "5848d10636ea064a89f3d7ebfc041bcb078de149795e5b8453dc146ac44b6b55",
+    "agent/shared_buffer.py": "f80e41e6843f5b3c1f73edac6036df69cb5f1dcb96236353196b35cbecc203b4",
+    "env/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "env/active_set.py": "f5a8d4c63749b1b8f28ba49d708d99e2fd5aaba4e8fb83fab46b05d6c91a323e",
+    "env/channel.py": "026eb54b86ffe330c2550420a9e642137dccb83821dadda0845ab757c734b357",
+    "env/metrics.py": "0dedcab5576f54e768a353690300467cb073dc1b764727c1e0ee147b8c291c94",
+    "env/mobility.py": "90b980733a2fc945a0125cfcb7db66e39a108891a33ace8b43afd503502562c4",
+    "env/observation.py": "2bffa39fc43786a2fada3953271bfa219790950b1db0730671fe8ed26ee7e569",
+    "env/topology.py": "472c813003c826285c87729eb4ee775c95782d8287eac83827889c1d37599053",
+    "env/water_filling.py": "9585da6fec18c6b8cd11d2555724c57ee8197efedd93c4443e42ad479671c7ca",
+    "env/wifi_env.py": "f690a5a7cc3d15e5ef6be7035bba8c31bae20d655d3d60d5de2f65b2984cfafd",
+    "env/scenarios.py": "d0f3d3a55d8c8c3d437463041b1f1494c32eb1de38b7156bf7b8d1a4bdbd45d5",
+    "env/user_demand.py": "c69fab4d4da4df54bba282b32663ab3a27299480a9d9f381aeb8c5a1449911b0",
+    "training/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "training/train_loop.py": "7dda63cf9310e0d6292842f2c868047a57c2c2fcc317247536f3dd55df01b7ae",
+    "training/evaluate.py": "972e892e11a16f4dd5638ec603ddb81f47d7dcf0a0a9dd4ce35359633bf0672f",
+    "training/utils.py": "c4299849b91a328e8225a5866154e9c1b18f96e982b93023fab5804e8a8d3d90",
+    "training/checkpoints.py": "c627f9d7670ee5a370ec0235dca09a69e555a9e36303af033ae26e9bddbdb73c",
+    "training/objectives.py": "183554e99dbbf9f2486b0ba65668b9eaf28ebaf06fedd53f856b8ccc7cd87d15",
+    "utils/logger.py": "4e2f316c133b4b18a763e3d69c338641fa210de685d782dc42c4423de239dde1",
+    "utils/plots.py": "2e5ddf222bde4319d164ded0461a9399c2c6a038729f5fd3609a23feca89d278",
+    "tests/test_contention_reward_v5.py": "f9f3ed98c8375d38907099a51b1b798719856a9832a9714996f073f4f2d106c9"
+  },
+  "excludes": [
+    "cooperative selectors",
+    "constrained cooperation power allocation",
+    "invitation",
+    "Co-SR packet branch",
+    "experiment adapters",
+    "notebooks",
+    "results",
+    "checkpoints"
+  ],
+  "defaults_preserved": [
+    "CCA",
+    "PHY",
+    "power budget",
+    "ordinary WF",
+    "legacy reward",
+    "equal airtime"
+  ],
+  "experimental_research_pilot_reproduced": false
+}

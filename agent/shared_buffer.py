@@ -38,3 +38,52 @@ class SharedReplayBuffer:
 
     def __len__(self):
         return len(self.memory)
+
+    def state_dict(self):
+        """Compact tensor-only representation safe for weights-only loading."""
+        if not self.memory:
+            return {
+                "capacity": int(self.memory.maxlen),
+                "num_agents": int(self.num_agents),
+                "empty": True,
+            }
+        columns = list(zip(*self.memory))
+        return {
+            "capacity": int(self.memory.maxlen),
+            "num_agents": int(self.num_agents),
+            "empty": False,
+            "states": torch.from_numpy(np.asarray(columns[0], dtype=np.float32)),
+            "actions": torch.from_numpy(np.asarray(columns[1], dtype=np.int64)),
+            "rewards": torch.tensor(columns[2], dtype=torch.float32),
+            "next_states": torch.from_numpy(np.asarray(columns[3], dtype=np.float32)),
+            "dones": torch.tensor(columns[4], dtype=torch.bool),
+            "global_states": torch.from_numpy(np.asarray(columns[5], dtype=np.float32)),
+            "next_global_states": torch.from_numpy(np.asarray(columns[6], dtype=np.float32)),
+        }
+
+    def load_state_dict(self, state):
+        if int(state["capacity"]) != self.memory.maxlen:
+            raise ValueError("Replay buffer capacity differs from checkpoint")
+        if int(state["num_agents"]) != self.num_agents:
+            raise ValueError("Replay buffer agent count differs from checkpoint")
+        self.memory.clear()
+        if state.get("empty", False):
+            return
+        columns = [
+            state[key].cpu().numpy()
+            for key in (
+                "states", "actions", "rewards", "next_states", "dones",
+                "global_states", "next_global_states",
+            )
+        ]
+        for row in zip(*columns):
+            states, actions, reward, next_states, done, global_state, next_global = row
+            self.memory.append((
+                [np.array(value, dtype=np.float32, copy=True) for value in states],
+                np.asarray(actions, dtype=np.int64).tolist(),
+                float(reward),
+                [np.array(value, dtype=np.float32, copy=True) for value in next_states],
+                bool(done),
+                np.array(global_state, dtype=np.float32, copy=True),
+                np.array(next_global, dtype=np.float32, copy=True),
+            ))

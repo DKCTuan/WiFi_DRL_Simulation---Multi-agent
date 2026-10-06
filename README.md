@@ -1,76 +1,73 @@
-# WiFi DRL Simulation — Multi-agent Co-SR
+# WiFi DRL Simulation — core
 
-This repository studies a reproducible, packet-level simulation of
-centralized **Cooperative Spatial Reuse (Co-SR)** scheduling for a multi-AP
-Wi-Fi network.  The research question is whether a learned central scheduler
-can choose compatible concurrent AP--STA transmissions with lower tail delay
-than a transparent `Group-Oldest + PF` heuristic, while retaining throughput
-and fairness.
+Nhánh core gồm hai chế độ: **AI-only** chọn CCA và công suất; **AI+WF** chọn
+CCA rồi water-filling phân bổ công suất. Đây là bản nền tảng để phát triển
+và kiểm thử, chưa phải benchmark cuối của nghiên cứu dịch vụ cố định.
 
-## What the current model does
+## Cài và chạy
 
-At each 5 ms TXOP, the scheduler selects either one AP--STA link or a
-PHY-compatible pair from two APs.  Pairwise proportional-fair (PF) power
-allocation is fixed, so the DQN learns the scheduling decision rather than a
-confounded power-control policy.  The simulator includes finite packet queues,
-Poisson traffic, HoL delay, drops, discrete MCS rates, action masks, warm-up
-exclusion, Jain fairness, throughput, group size, and energy efficiency.
+Yêu cầu Python 3.12. Tạo virtual environment và cài dependencies:
 
-This is a Co-SR simulation abstraction, **not** a full Wi-Fi 8 standards
-implementation or true Co-BF: it does not yet model CSI, antenna arrays,
-beamforming/precoding, or zero forcing.
-
-## Current experimental status
-
-The fixed-topology evaluation protocol separates three sources of randomness:
-the DQN run seed, the fixed topology scenario seed, and traffic seeds.  This
-prevents the run seed from silently changing the scenario during comparison.
-
-With `run_seed=0`, `scenario_seed=2026`, and fixed topology, the best
-structured DQN checkpoint occurred at episode 100:
-
-| Metric | Best DQN checkpoint |
-| --- | ---: |
-| P95 delay | 33.00 TXOP |
-| Mean delay | 16.33 TXOP |
-| Jain fairness index | 0.9904 |
-| Throughput | 64.88 Mbps |
-| Mean group size | 1.82 |
-
-This is close to the earlier `Group-Oldest + PF` reference (about 31.33 TXOP
-P95), but it is not yet evidence that DQN beats the baseline.  The policy
-drifts after roughly episode 175 and increasingly schedules single links.  An
-imitation-loss floor of 0.05 reduced, but did not eliminate, this degradation.
-
-## Reproduce the current learning-rate ablation
-
-```bash
-python scripts/run_cosr_dqn.py \
-  --episodes 300 --steps 300 --warmup-steps 150 \
-  --replay-warmup 2000 --batch-size 128 \
-  --eval-interval 25 --eval-episodes 20 \
-  --arrival-rate 0.45 --fixed-topology \
-  --scenario-seed 2026 --seed 0 \
-  --expert-steps 6000 --expert-pretrain-updates 500 \
-  --imitation-weight 0.30 --imitation-floor 0.05 \
-  --lr-decay-after-episode 150 --lr-decay-gamma 0.50 \
-  --output-dir results_data/cosr_seed0_fixed2026_floor005_lrdecay150
+```sh
+python -m venv .venv
+python -m pip install -r requirements.txt
+python -m unittest discover -s tests -v
+python main.py
 ```
 
-The run writes the best/last model state dictionaries, full optimizer
-checkpoints, and a JSON training/evaluation history to the output directory.
+Sau khi tạo môi trường, kích hoạt `.venv` trước lệnh cài/chạy: trên Windows
+dùng `.venv\Scripts\Activate.ps1`; trên Linux/macOS dùng `source .venv/bin/activate`.
+`python main.py` chỉ kiểm runtime của cả hai chế độ trong 12 slot bằng mạng
+chưa học, không đánh giá chất lượng thuật toán và không khởi động train dài.
 
-## Next experiments
+Huấn luyện khi cần, dùng cấu hình chung trong `config.py`:
 
-1. Run the learning-rate-decay ablation above to test whether late TD updates
-   cause the learned Co-SR policy to drift.
-2. Run a replay-buffer ablation (`50,000` versus `100,000` transitions) with
-   the same seed and without LR decay.  The 50,000-transition buffer becomes
-   full near episode 167, close to the observed degradation point.
-3. Evaluate the selected configuration against `Group-Oldest + PF` using the
-   same fixed scenario and traffic traces.
-4. Only after a stable seed-0 configuration is identified, run seeds 0, 1,
-   and 2 and report mean and variability.
+```sh
+python main.py --mode train --arm ai_only --episodes 25 --seed 0
+python main.py --mode train --arm ai_wf --episodes 25 --seed 0
+```
 
-See [COSR_BASELINE.md](COSR_BASELINE.md) for environmental assumptions and
-baseline commands, and [COSR_DQN.md](COSR_DQN.md) for learner details.
+Output nằm trong `results/`, được Git bỏ qua. Resume dùng lại cùng experiment
+name và cấu hình/source, ví dụ thêm `--resume --episodes 50`. Checkpoint kiểm
+signature; không nạp checkpoint nghiên cứu cũ sang source core này.
+
+## Phần được giữ
+
+- `env/`: topology, channel/path-loss, mobility tùy chọn, seeded slotted
+  contention, SINR/Shannon, ordinary bounded WF, rate/JFI và observation.
+- `agent/`: DDQN, encoder và QMIX mixer, shared replay.
+- `training/`: train/evaluate, seeding, scalar objective và checkpoint atomic.
+- `utils/`: log và plotting dùng chung.
+- `tests/`: kiểm PHY/công suất, contention, train/evaluation và resume.
+
+CCA là action của agent và có thể đổi theo slot. Mỗi slot thực hiện admission
+một lần trước khi áp dụng phân bổ công suất. Ngân sách tổng 0,18 W và peak
+0,10 W/AP dùng chung cho cả hai chế độ.
+
+## Phạm vi mô hình và cấu hình
+
+Bản core giữ các mặc định generic hiện có: demand cap tắt, reward legacy,
+chia đều airtime trong BSS, mobility và multi-layout training bật. Cấu hình
+static 6 AP × 10 STA, demand 433,5 Mbps, scheduler tái sử dụng airtime và score
+trên demand-normalized temporal JFI của pilot nghiên cứu **không được tự động
+gộp vào lần dọn core này**. Không dùng output mặc định để diễn giải kết quả pilot.
+
+`env/user_demand.py` là tiện ích nhu cầu tùy chọn. Khi bật demand, core cắt
+rate theo nhu cầu; chưa tái sử dụng phần airtime dư. `jfi_time_average` trong
+core tính trên throughput tích lũy, không phải satisfaction chia cho demand.
+Những khác biệt này được ghi rõ để tránh gộp các protocol không tương đương.
+
+Slotted sensing/SINR là abstraction, chưa có queue, delay, retry hay đầy đủ
+IEEE 802.11 MAC. WF dùng channel costs cố định tại snapshot; không khẳng định
+nó tối ưu score dịch vụ 50/50.
+
+## Nhánh cooperative
+
+Cooperative đang phát triển riêng. Nhánh core không có bộ chọn cặp, trao đổi
+thông tin, guard dịch vụ, constrained WF, invitation hoặc mô hình Co-SR packet.
+Tham số tương thích `cooperation_enabled=False` và một số trường log bằng 0
+được giữ để giảm xáo trộn schema; truyền `True` bị từ chối ngay.
+Notebook, kết quả, ZIP, checkpoint và cache không được đưa vào release core.
+
+Xem [phạm vi cleanup](docs/CORE_CLEANUP.md) và
+[manifest nguồn](docs/CORE_SOURCE_MANIFEST.json).

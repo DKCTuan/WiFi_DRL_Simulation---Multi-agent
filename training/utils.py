@@ -45,8 +45,14 @@ def set_global_seed(seed):
 
 def normalize_eval_mode(eval_mode):
     eval_mode = (eval_mode or config.EVAL_MODE).lower()
-    if eval_mode not in ("fixed", "generalization"):
-        raise ValueError("eval_mode must be 'fixed' or 'generalization'")
+    if eval_mode not in (
+        "fixed", "fixed_validation", "fixed_test",
+        "generalization", "validation", "test",
+    ):
+        raise ValueError(
+            "eval_mode must be fixed, fixed_validation, fixed_test, "
+            "generalization, validation or test"
+        )
     return eval_mode
 
 
@@ -77,7 +83,13 @@ def aggregate_results(results_list):
 
     # New experiment metrics are optional so legacy raw JSON files can still
     # be combined without migration.
-    for key in ["train_coordination_links", "eval_coordination_links"]:
+    for key in [
+        "train_coordination_links",
+        "eval_coordination_links",
+        "train_coordination_power_reduction_w",
+        "eval_coordination_power_reduction_w",
+        "eval_team_reward",
+    ]:
         if not all(key in result for result in results_list):
             continue
         lengths = {len(result[key]) for result in results_list}

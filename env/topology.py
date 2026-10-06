@@ -8,8 +8,14 @@ import numpy as np
 import config
 
 
-def setup_aps():
+def setup_aps(positions=None):
     """Xếp AP đều theo vòng tròn quanh tâm vùng phủ sóng (100x100 m)."""
+    if positions is not None:
+        positions = np.asarray(positions, dtype=float)
+        if (positions.shape != (config.NUM_APS, 2)
+                or not np.isfinite(positions).all()
+                or np.any(positions < 0) or np.any(positions > config.AREA_SIZE)):
+            raise ValueError('AP positions must be finite NUM_APS x 2 coordinates within the area')
     aps = []
     side = config.AREA_SIZE
     for i in range(config.NUM_APS):
@@ -17,6 +23,8 @@ def setup_aps():
         radius = side * 0.35  # 35% kích thước vùng
         x = side / 2 + radius * np.cos(angle)
         y = side / 2 + radius * np.sin(angle)
+        if positions is not None:
+            x, y = map(float, positions[i])
         aps.append({
             'id': i, 'x': x, 'y': y,
             'cca_threshold': config.DEFAULT_CCA,

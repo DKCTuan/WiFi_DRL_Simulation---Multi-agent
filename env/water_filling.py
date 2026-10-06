@@ -11,6 +11,27 @@ from env.channel import calculate_distance, calculate_channel_gain
 BISECTION_ITERS = 30
 
 
+def enforce_power_budget(active_aps):
+    """Project Full-AI requests onto the same bounded budget used by WF.
+
+    Preserve P_min and proportionally scale only power above that floor.
+    The resulting applied power is reported in the next observation.
+    """
+    if not active_aps:
+        return
+    minimum = float(config.TX_POWER_LEVELS[0])
+    budget = min(config.TOTAL_POWER_BUDGET_W, len(active_aps) * config.P_MAX)
+    floor = len(active_aps) * minimum
+    if budget < floor - 1e-12:
+        raise ValueError('Power budget is below the active AP minimum')
+    powers = np.clip([ap['tx_power'] for ap in active_aps], minimum, config.P_MAX)
+    if powers.sum() > budget:
+        extras = powers - minimum
+        powers = minimum + extras * max(0.0, budget - floor) / extras.sum()
+    for ap, power in zip(active_aps, powers):
+        ap['tx_power'] = float(power)
+
+
 def _channel_cost(ap, bss_stas, active_aps):
     """Công thức (11): normalized interference-plus-noise cost c_b."""
     if not bss_stas:
