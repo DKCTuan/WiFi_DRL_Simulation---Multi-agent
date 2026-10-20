@@ -3,11 +3,11 @@ __pycache__/
 .venv/
 venv/
 
-results/models/*.pth
+results/
+results_data/
 *.pth
 *.pt
 *.zip
-results_data/
 
 .DS_Store
 Thumbs.db
