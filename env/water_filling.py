@@ -12,7 +12,8 @@ BISECTION_ITERS = 30
 
 
 def _channel_cost(ap, bss_stas, active_aps):
-    """Công thức (11): normalized interference-plus-noise cost c_b."""
+    """Công thức (11): normalized interference-plus-noise cost c_b.
+    Đóng góp 2: Hỗ trợ Service-Weighted Water-Filling khi bật SERVICE_WEIGHTED_WF_ENABLED."""
     if not bss_stas:
         return float("inf")
 
@@ -20,7 +21,21 @@ def _channel_cost(ap, bss_stas, active_aps):
         calculate_channel_gain(calculate_distance(ap, sta), sta['shadowing_db'])
         for sta in bss_stas
     ]
-    avg_gain = max(float(np.mean(gains)), 1e-18)
+
+    use_weights = getattr(config, 'SERVICE_WEIGHTED_WF_ENABLED', False) and hasattr(config, 'SERVICE_CLASSES')
+    if use_weights:
+        weights = [
+            config.SERVICE_CLASSES.get(sta.get('service_class', 'web'), {}).get('weight', 1.0)
+            for sta in bss_stas
+        ]
+        sum_weights = sum(weights)
+        if sum_weights > 0:
+            avg_gain = max(float(np.average(gains, weights=weights)), 1e-18)
+        else:
+            avg_gain = max(float(np.mean(gains)), 1e-18)
+            use_weights = False
+    else:
+        avg_gain = max(float(np.mean(gains)), 1e-18)
 
     interference = 0
     for other_ap in active_aps:
@@ -29,7 +44,10 @@ def _channel_cost(ap, bss_stas, active_aps):
                 calculate_channel_gain(calculate_distance(other_ap, sta), sta['shadowing_db'])
                 for sta in bss_stas
             ]
-            interference += other_ap['tx_power'] * float(np.mean(link_losses))
+            if use_weights:
+                interference += other_ap['tx_power'] * float(np.average(link_losses, weights=weights))
+            else:
+                interference += other_ap['tx_power'] * float(np.mean(link_losses))
 
     return (interference + config.NOISE_POWER) / avg_gain
 
