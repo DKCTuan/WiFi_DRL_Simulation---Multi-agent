@@ -27,7 +27,20 @@ AP_SHADOW_BIAS_DB = [-2.0, -1.0, 0.5, 2.0, 3.5, 5.0]
 # 3. Cấu hình AI
 CCA_THRESHOLDS = [-82, -78, -74, -70, -66, -62, -58]
 DEFAULT_CCA = -70
-OBS_SIZE = 7
+# 2.5 Cấu hình Lớp dịch vụ & QoS (Service-Aware - Đóng góp 1)
+SERVICE_AWARE_ENABLED = True
+SERVICE_CLASSES = {
+    'video': {'weight': 4.0, 'r_min_mbps': 5.0, 'delay_max_ms': 50},
+    'voice': {'weight': 3.0, 'r_min_mbps': 0.5, 'delay_max_ms': 20},
+    'web':   {'weight': 1.0, 'r_min_mbps': 1.0, 'delay_max_ms': 200},
+    'iot':   {'weight': 0.5, 'r_min_mbps': 0.05, 'delay_max_ms': 1000}
+}
+SERVICE_CLASS_NAMES = list(SERVICE_CLASSES.keys())
+NUM_SERVICE_CLASSES = len(SERVICE_CLASSES)
+SERVICE_DISTRIBUTION = [0.20, 0.20, 0.40, 0.20]  # Tỷ lệ: 20% Video, 20% Voice, 40% Web, 20% IoT
+
+BASE_OBS_SIZE = 7
+OBS_SIZE = BASE_OBS_SIZE + (NUM_SERVICE_CLASSES if SERVICE_AWARE_ENABLED else 0)
 HYBRID_ACTION_SIZE = len(CCA_THRESHOLDS)
 FULL_AI_ACTION_SIZE = len(CCA_THRESHOLDS) * len(TX_POWER_LEVELS)
 
@@ -93,6 +106,7 @@ REWARD_GLOBAL_WEIGHT = 0.45
 REWARD_LOCAL_WEIGHT = 0.10
 REWARD_FAIRNESS_WEIGHT = 0.35
 REWARD_ACTIVE_AP_WEIGHT = 0.10
+REWARD_QOS_WEIGHT = 0.10  # Phạt vi phạm QoS cho dịch vụ nhạy cảm trễ/băng thông sàn
 
 # CCA stability controls
 CCA_EWMA_ALPHA = 0.35

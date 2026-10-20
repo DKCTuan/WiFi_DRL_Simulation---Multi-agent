@@ -52,7 +52,7 @@ def _coordination_efficiency_by_ap(aps, stas, cooperation_links):
 
 
 def compute_individual_ap_throughput(
-    aps, stas, active_aps, bandwidth, cooperation_links=None,
+    aps, stas, active_aps, bandwidth, cooperation_links=None, return_sta_throughputs=False,
 ):
     """Throughput (Mbps) riêng của từng AP, index theo ap['id']."""
     num_agents = len(aps)
@@ -73,7 +73,7 @@ def compute_individual_ap_throughput(
 
 
 def compute_network_throughput_and_jfi(
-    aps, stas, active_aps, bandwidth, cooperation_links=None,
+    aps, stas, active_aps, bandwidth, cooperation_links=None, return_sta_throughputs=False,
 ):
     """
     Trả về (total_throughput_mbps, jain_index) — công thức (3)-(4).
@@ -111,6 +111,8 @@ def compute_network_throughput_and_jfi(
     else:
         jain_index = 0.0
 
+    if return_sta_throughputs:
+        return total_throughput_mbps, jain_index, [x / 1e6 for x in sta_throughputs]
     return total_throughput_mbps, jain_index
 
 
@@ -124,3 +126,45 @@ def update_jfi_ema(prev_ema, jain_index, alpha):
     if prev_ema is None:
         return jain_index
     return alpha * jain_index + (1 - alpha) * prev_ema
+
+
+def compute_qos_metrics(stas, sta_throughputs_mbps):
+    """
+    Tính toán các chỉ số QoS dựa trên phân lớp dịch vụ của từng STA (Đóng góp 1):
+    - qos_sat_rate: Tỷ lệ % STA đạt tốc độ sàn r_min_mbps
+    - avg_qos_violation: Mức độ vi phạm tốc độ sàn trung bình (Mbps)
+    - class_satisfaction: dict tỷ lệ đạt QoS theo từng lớp dịch vụ
+    - weighted_throughput: Tổng throughput có trọng số theo mức độ ưu tiên
+    """
+    if not getattr(config, 'SERVICE_AWARE_ENABLED', False) or len(stas) == 0:
+        return 1.0, 0.0, {}, sum(sta_throughputs_mbps)
+
+    satisfied_count = 0
+    total_violation = 0.0
+    weighted_thr_total = 0.0
+    class_stats = {c: {'total': 0, 'satisfied': 0} for c in config.SERVICE_CLASS_NAMES}
+
+    for sta, thr_mbps in zip(stas, sta_throughputs_mbps):
+        s_class = sta.get('service_class', 'web')
+        req = config.SERVICE_CLASSES.get(s_class, {'weight': 1.0, 'r_min_mbps': 1.0})
+        r_min = req['r_min_mbps']
+        weight = req.get('weight', 1.0)
+
+        weighted_thr_total += weight * thr_mbps
+        class_stats[s_class]['total'] += 1
+
+        if thr_mbps >= r_min:
+            satisfied_count += 1
+            class_stats[s_class]['satisfied'] += 1
+        else:
+            total_violation += (r_min - thr_mbps)
+
+    num_stas = len(stas)
+    qos_sat_rate = satisfied_count / num_stas if num_stas > 0 else 0.0
+    avg_qos_violation = total_violation / num_stas if num_stas > 0 else 0.0
+
+    class_satisfaction = {
+        c: (class_stats[c]['satisfied'] / class_stats[c]['total']) if class_stats[c]['total'] > 0 else 1.0
+        for c in config.SERVICE_CLASS_NAMES
+    }
+    return qos_sat_rate, avg_qos_violation, class_satisfaction, weighted_thr_total

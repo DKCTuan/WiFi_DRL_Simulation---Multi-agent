@@ -18,6 +18,7 @@ from env.cooperation import build_cooperation_links, decode_cooperative_action
 from env.metrics import (
     compute_individual_ap_throughput,
     compute_network_throughput_and_jfi,
+    compute_qos_metrics,
     update_jfi_ema,
 )
 from env.observation import build_observation
@@ -211,8 +212,11 @@ class WiFiEnv(gym.Env):
                 self.aps, self.stas, active_aps, target_requests
             )
 
-        total_throughput, jain_index = compute_network_throughput_and_jfi(
-            self.aps, self.stas, active_aps, config.BANDWIDTH, cooperation_links
+        total_throughput, jain_index, sta_throughputs = compute_network_throughput_and_jfi(
+            self.aps, self.stas, active_aps, config.BANDWIDTH, cooperation_links, return_sta_throughputs=True
+        )
+        qos_sat_rate, qos_violation, class_satisfaction, weighted_throughput = compute_qos_metrics(
+            self.stas, sta_throughputs
         )
         ap_throughputs = compute_individual_ap_throughput(
             self.aps, self.stas, active_aps, config.BANDWIDTH, cooperation_links
@@ -243,6 +247,7 @@ class WiFiEnv(gym.Env):
         rewards_dict = {}
         total_thr_norm = float(np.clip(total_throughput / config.REWARD_TOTAL_THROUGHPUT_REF_MBPS, 0, 1))
 
+        qos_penalty = getattr(config, 'REWARD_QOS_WEIGHT', 0.0) * min(qos_violation / 2.0, 1.0)
         for i, agent_id in enumerate(self.agent_ids):
             local_thr = ap_throughputs[i]
             local_thr_norm = float(np.clip(local_thr / config.LOCAL_THROUGHPUT_REF_MBPS, 0, 1))
@@ -251,7 +256,8 @@ class WiFiEnv(gym.Env):
                 config.REWARD_GLOBAL_WEIGHT * total_thr_norm +
                 config.REWARD_LOCAL_WEIGHT * local_thr_norm +
                 config.REWARD_FAIRNESS_WEIGHT * jfi_for_reward +
-                self.active_ap_weight * (1.0 - active_ratio)
+                self.active_ap_weight * (1.0 - active_ratio) -
+                qos_penalty
             )
             rewards_dict[agent_id] = float(np.clip(reward, 0, 1))
 
@@ -266,6 +272,10 @@ class WiFiEnv(gym.Env):
 
         info = {
             "throughput": total_throughput,
+            "qos_sat_rate": qos_sat_rate,
+            "qos_violation": qos_violation,
+            "class_satisfaction": class_satisfaction,
+            "weighted_throughput": weighted_throughput,
             "jfi": jain_index,                 # metric gốc, KHÔNG bị làm mượt — dùng cho Fig 1-4/eval
             "jfi_reward_ema": jfi_for_reward,   # giá trị thực sự dùng để tính reward (debug/theo dõi)
             "ap_individual_throughputs": ap_throughputs,

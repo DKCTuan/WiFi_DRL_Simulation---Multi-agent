@@ -64,6 +64,7 @@ def setup_stas(aps, ap_load_profile, base_seed):
                 'y': ap['y'] + radius * np.sin(angle),
                 'shadowing_db': shadow,
                 'vx': vx, 'vy': vy,
+                'service_class': str(np.random.RandomState((int(base_seed) * 1000 + sta_id) % 4294967295).choice(config.SERVICE_CLASS_NAMES, p=config.SERVICE_DISTRIBUTION)) if getattr(config, 'SERVICE_AWARE_ENABLED', False) else 'web',
             })
             sta_id += 1
 

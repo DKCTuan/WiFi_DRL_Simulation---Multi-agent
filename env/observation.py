@@ -43,6 +43,11 @@ def build_observation(
         float(ap['id'] in active_ap_ids),                      # AP này có đang active không
         len(active_ap_ids) / num_agents,                       # Tỷ lệ AP active toàn mạng
     ]
+    if getattr(config, 'SERVICE_AWARE_ENABLED', False):
+        total_bss_stas = max(len(bss_stas), 1)
+        for class_name in config.SERVICE_CLASS_NAMES:
+            cnt = sum(1 for s in bss_stas if s.get('service_class') == class_name)
+            observation.append(cnt / total_bss_stas)
     if cooperation_enabled:
         observation.extend(neighbor_opportunity_scores(agent_idx, aps, stas))
     return np.asarray(observation, dtype=np.float32)
