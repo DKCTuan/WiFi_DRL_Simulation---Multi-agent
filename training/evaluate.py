@@ -58,9 +58,20 @@ def evaluate_policy(
 
             for _ in range(steps):
                 actions_dict = {}
-                for agent_id in env.agent_ids:
-                    state_input = np.array(states_dict[agent_id], dtype=np.float32)
-                    actions_dict[agent_id] = agents[agent_id].act(state_input)
+                if cooperation_enabled:
+                    from env.mean_field import compute_mean_field_z
+                    local_zs = [
+                        agents[aid].get_latent(np.array(states_dict[aid], dtype=np.float32))
+                        for aid in env.agent_ids
+                    ]
+                    mf_zs = compute_mean_field_z(local_zs, env.num_agents)
+                    for idx, agent_id in enumerate(env.agent_ids):
+                        state_input = np.array(states_dict[agent_id], dtype=np.float32)
+                        actions_dict[agent_id] = agents[agent_id].act(state_input, neighbor_z=mf_zs[idx])
+                else:
+                    for agent_id in env.agent_ids:
+                        state_input = np.array(states_dict[agent_id], dtype=np.float32)
+                        actions_dict[agent_id] = agents[agent_id].act(state_input)
 
                 next_states_dict, _, terminated, truncated, info = env.step(actions_dict)
                 total_throughput += info["throughput"]

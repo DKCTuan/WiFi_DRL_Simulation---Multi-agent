@@ -10,15 +10,23 @@ import config
 
 
 class QNetwork(nn.Module):
-    def __init__(self, latent_size=16, action_size=config.FULL_AI_ACTION_SIZE):
+    def __init__(self, latent_size=16, action_size=config.FULL_AI_ACTION_SIZE, cooperation_enabled=False):
         super(QNetwork, self).__init__()
-        # Mạng Q sâu hơn để biểu diễn policy với action space lớn
-        self.fc1 = nn.Linear(latent_size, 128)
+        self.cooperation_enabled = cooperation_enabled
+        in_features = latent_size * 2 if cooperation_enabled else latent_size
+        self.fc1 = nn.Linear(in_features, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, action_size)
 
-    def forward(self, latent_z):
-        x = torch.relu(self.fc1(latent_z))
+    def forward(self, latent_z, neighbor_z=None):
+        if self.cooperation_enabled:
+            if neighbor_z is not None:
+                x_in = torch.cat([latent_z, neighbor_z], dim=-1)
+            else:
+                x_in = torch.cat([latent_z, torch.zeros_like(latent_z)], dim=-1)
+        else:
+            x_in = latent_z
+        x = torch.relu(self.fc1(x_in))
         x = torch.relu(self.fc2(x))
         return self.fc3(x)
 
@@ -49,32 +57,45 @@ class ReplayBuffer:
 
 class DoubleDQNAgent:
     def __init__(self, state_size=1, action_size=config.FULL_AI_ACTION_SIZE, latent_size=16,
-                 epsilon_decay=config.EPSILON_DECAY):
+                 epsilon_decay=config.EPSILON_DECAY, cooperation_enabled=False):
         self.state_size = state_size
         self.action_size = action_size
         self.latent_size = latent_size
+        self.cooperation_enabled = cooperation_enabled
 
         # Bộ mã hóa Information Bottleneck cục bộ
         self.encoder = InformationBottleneckEncoder(input_dim=state_size, latent_dim=latent_size)
         self.target_encoder = copy.deepcopy(self.encoder)
 
-        self.q_network = QNetwork(latent_size, action_size)
-        self.target_network = QNetwork(latent_size, action_size)
+        self.q_network = QNetwork(latent_size, action_size, cooperation_enabled=cooperation_enabled)
+        self.target_network = QNetwork(latent_size, action_size, cooperation_enabled=cooperation_enabled)
         self.target_network.load_state_dict(self.q_network.state_dict())
 
         self.memory = ReplayBuffer()
         self.epsilon = config.EPSILON_START
         self.epsilon_min = config.EPSILON_MIN
-        self.epsilon_decay = epsilon_decay  # nhận từ ngoài để hybrid vs full-ai dùng khác nhau
+        self.epsilon_decay = epsilon_decay
 
-    def act(self, state):
+    def get_latent(self, state):
+        device = next(self.q_network.parameters()).device
+        state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
+        with torch.no_grad():
+            mu, _ = self.encoder(state_tensor)
+            return mu.squeeze(0).cpu().numpy()
+
+    def act(self, state, neighbor_z=None):
         if np.random.rand() <= self.epsilon:
             return random.randrange(self.action_size)
 
         device = next(self.q_network.parameters()).device
         state_tensor = torch.FloatTensor(state).unsqueeze(0).to(device)
+        neighbor_tensor = (
+            torch.FloatTensor(neighbor_z).unsqueeze(0).to(device)
+            if neighbor_z is not None
+            else None
+        )
 
         with torch.no_grad():
             mu, _ = self.encoder(state_tensor)
-            q_values = self.q_network(mu)
+            q_values = self.q_network(mu, neighbor_tensor)
             return torch.argmax(q_values, dim=1).item()

@@ -45,7 +45,7 @@ def train_marl(
         use_water_filling=use_water_filling,
         action_size=action_size,
         num_stas_per_ap=num_stas,
-        cooperation_enabled=cooperation_enabled,
+        cooperation_enabled=False,
     )
     num_agents = env.num_agents
     # Latent size và epsilon decay khác nhau theo action space để so sánh công bằng
@@ -73,6 +73,7 @@ def train_marl(
             action_size=action_size,
             latent_size=latent_size,
             epsilon_decay=epsilon_decay,
+            cooperation_enabled=False,
         )
         for agent_id in env.agent_ids
     }
@@ -156,9 +157,20 @@ def train_marl(
 
         for step in range(config.TRAIN_STEPS_PER_EPISODE):
             actions_dict = {}
-            for agent_id in env.agent_ids:
-                state_input = np.array(states_dict[agent_id], dtype=np.float32)
-                actions_dict[agent_id] = agents[agent_id].act(state_input)
+            if cooperation_enabled:
+                from env.mean_field import compute_mean_field_z
+                local_zs = [
+                    agents[aid].get_latent(np.array(states_dict[aid], dtype=np.float32))
+                    for aid in env.agent_ids
+                ]
+                mf_zs = compute_mean_field_z(local_zs, num_agents)
+                for idx, agent_id in enumerate(env.agent_ids):
+                    state_input = np.array(states_dict[agent_id], dtype=np.float32)
+                    actions_dict[agent_id] = agents[agent_id].act(state_input, neighbor_z=mf_zs[idx])
+            else:
+                for agent_id in env.agent_ids:
+                    state_input = np.array(states_dict[agent_id], dtype=np.float32)
+                    actions_dict[agent_id] = agents[agent_id].act(state_input)
 
             global_state = build_global_state(states_dict, last_throughputs, last_tx_powers, env.agent_ids)
 
@@ -195,50 +207,53 @@ def train_marl(
                 batch_agent_next_qs = []
                 total_kl_loss = 0.0
 
+                all_zs = []
+                all_mu_targets = []
+                all_mu_onlines = []
+
                 for idx, agent_id in enumerate(env.agent_ids):
                     s = s_all[:, idx, :]
-                    a = a_all[:, idx].unsqueeze(1)
                     s_next = s_next_all[:, idx, :]
-
                     mu, log_var = agents[agent_id].encoder(s)
                     kl_loss = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp(), dim=1).mean()
                     total_kl_loss += kl_loss
-
-                    # Fix: trước đây Q-network luôn nhận mu (giá trị trung bình
-                    # xác định), khiến hàm reparameterize() không bao giờ được
-                    # gọi và "bottleneck" chỉ còn là một số hạng regularization
-                    # KL cộng vào loss, không thực sự nén/nhiễu thông tin đi vào
-                    # quyết định — làm cho ablation "no_vib" (beta=0) gần như
-                    # không đổi gì so với baseline.
-                    # Đúng theo Eq. (6) của bài báo: khi TRAIN, agent dùng latent
-                    # đã sample z = mu + eps*std (reparameterization trick) để
-                    # gradient của TD-loss thực sự chảy qua nhiễu ngẫu nhiên đó,
-                    # khiến việc bật/tắt VIB có ảnh hưởng thật đến Q-values học
-                    # được. Khi EXECUTION (act(), xem agent/double_dqn.py) vẫn
-                    # dùng mu để có policy xác định/ổn định, đúng như bài báo mô
-                    # tả: "During execution, the agent uses the latent mean µϕ
-                    # to obtain a deterministic and stable policy."
-                    # Ablation "no_vib" should remove the stochastic bottleneck,
-                    # not only the KL penalty. With beta=0, train deterministically
-                    # on mu so the variant is a clean w/o-IB comparison.
                     z = mu if beta_ib == 0.0 else agents[agent_id].encoder.reparameterize(mu, log_var)
-                    q_values = agents[agent_id].q_network(z).gather(1, a)
+                    all_zs.append(z)
+
+                    with torch.no_grad():
+                        mu_next_t, _ = agents[agent_id].target_encoder(s_next)
+                        all_mu_targets.append(mu_next_t)
+                        if use_double_dqn:
+                            mu_next_o, _ = agents[agent_id].encoder(s_next)
+                            all_mu_onlines.append(mu_next_o)
+
+                if cooperation_enabled:
+                    from env.mean_field import compute_mean_field_z
+                    zs_tensor = torch.stack(all_zs, dim=1)
+                    mf_zs = compute_mean_field_z(zs_tensor, num_agents)
+
+                    mu_targets_tensor = torch.stack(all_mu_targets, dim=1)
+                    mf_targets = compute_mean_field_z(mu_targets_tensor, num_agents)
+
+                    if use_double_dqn:
+                        mu_onlines_tensor = torch.stack(all_mu_onlines, dim=1)
+                        mf_onlines = compute_mean_field_z(mu_onlines_tensor, num_agents)
+
+                for idx, agent_id in enumerate(env.agent_ids):
+                    a = a_all[:, idx].unsqueeze(1)
+                    nbr_z = mf_zs[:, idx, :] if cooperation_enabled else None
+                    nbr_target = mf_targets[:, idx, :] if cooperation_enabled else None
+                    nbr_online = mf_onlines[:, idx, :] if cooperation_enabled else None
+
+                    q_values = agents[agent_id].q_network(all_zs[idx], nbr_z).gather(1, a)
                     batch_agent_qs.append(q_values)
 
                     with torch.no_grad():
-                        mu_next_target, _ = agents[agent_id].target_encoder(s_next)
-                        target_next_q_values = agents[agent_id].target_network(mu_next_target)
+                        target_next_q_values = agents[agent_id].target_network(all_mu_targets[idx], nbr_target)
                         if use_double_dqn:
-                            # Double DQN: online network CHỌN action tốt nhất,
-                            # target network chỉ ĐÁNH GIÁ giá trị của action đó
-                            # (giảm overestimation bias, theo van Hasselt et al. [8]).
-                            mu_next_online, _ = agents[agent_id].encoder(s_next)
-                            best_next_a = agents[agent_id].q_network(mu_next_online).argmax(1).unsqueeze(1)
+                            best_next_a = agents[agent_id].q_network(all_mu_onlines[idx], nbr_online).argmax(1).unsqueeze(1)
                             next_q = target_next_q_values.gather(1, best_next_a)
                         else:
-                            # Vanilla DQN (ablation "no_ddqn"): target network vừa
-                            # chọn vừa đánh giá action tốt nhất (max), không tách
-                            # vai trò select/evaluate như Double DQN.
                             next_q = target_next_q_values.max(1, keepdim=True)[0]
                         batch_agent_next_qs.append(next_q)
 
